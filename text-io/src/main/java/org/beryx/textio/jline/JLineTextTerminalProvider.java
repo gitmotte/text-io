@@ -15,18 +15,17 @@
  */
 package org.beryx.textio.jline;
 
-import jline.console.ConsoleReader;
 import org.beryx.textio.TextTerminalProvider;
 
 /**
- * If {@link System#console()} is not null and a ConsoleReader can be created, it provides a {@link JLineTextTerminal}.
+ * If {@link System#console()} is not null and a ConsoleReader can be created,
+ * it provides a {@link JLineTextTerminal}.
  */
 public class JLineTextTerminalProvider implements TextTerminalProvider {
+    @Override
     public JLineTextTerminal getTextTerminal() {
-        if(System.console() == null) return null;
         try {
-            ConsoleReader reader = new ConsoleReader();
-            return new JLineTextTerminal(reader);
+            return new JLineTextTerminal();
         } catch (Exception e) {
             return null;
         }

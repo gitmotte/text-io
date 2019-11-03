@@ -15,15 +15,21 @@
  */
 package org.beryx.textio.jline;
 
-import java.awt.Color;
-import jline.console.ConsoleReader;
-import jline.console.CursorBuffer;
-import jline.console.UserInterruptException;
-import org.beryx.awt.color.ColorFactory;
-import org.beryx.textio.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.beryx.textio.PropertiesConstants.PROP_ANSI_COLOR_MODE;
+import static org.beryx.textio.PropertiesConstants.PROP_INPUT_BGCOLOR;
+import static org.beryx.textio.PropertiesConstants.PROP_INPUT_BOLD;
+import static org.beryx.textio.PropertiesConstants.PROP_INPUT_COLOR;
+import static org.beryx.textio.PropertiesConstants.PROP_INPUT_ITALIC;
+import static org.beryx.textio.PropertiesConstants.PROP_INPUT_UNDERLINE;
+import static org.beryx.textio.PropertiesConstants.PROP_PROMPT_BGCOLOR;
+import static org.beryx.textio.PropertiesConstants.PROP_PROMPT_BOLD;
+import static org.beryx.textio.PropertiesConstants.PROP_PROMPT_COLOR;
+import static org.beryx.textio.PropertiesConstants.PROP_PROMPT_ITALIC;
+import static org.beryx.textio.PropertiesConstants.PROP_PROMPT_UNDERLINE;
+import static org.beryx.textio.ReadInterruptionStrategy.Action.CONTINUE;
+import static org.beryx.textio.ReadInterruptionStrategy.Action.RESTART;
 
+import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
@@ -33,15 +39,31 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import static org.beryx.textio.PropertiesConstants.*;
-import static org.beryx.textio.ReadInterruptionStrategy.Action.*;
+import org.beryx.awt.color.ColorFactory;
+import org.beryx.textio.AbstractTextTerminal;
+import org.beryx.textio.KeyCombination;
+import org.beryx.textio.PropertiesPrefixes;
+import org.beryx.textio.ReadHandlerData;
+import org.beryx.textio.ReadInterruptionData;
+import org.beryx.textio.ReadInterruptionException;
+import org.beryx.textio.ReadInterruptionStrategy;
+import org.beryx.textio.TerminalProperties;
+import org.beryx.textio.TextTerminal;
+import org.jline.reader.Binding;
+import org.jline.reader.Buffer;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
+import org.jline.reader.impl.LineReaderImpl;
+import org.jline.terminal.TerminalBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A JLine-based {@link TextTerminal}.
  */
-@PropertiesPrefixes({"jline"})
+@PropertiesPrefixes({ "jline" })
 public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
-    private static final Logger logger =  LoggerFactory.getLogger(JLineTextTerminal.class);
+    private static final Logger logger = LoggerFactory.getLogger(JLineTextTerminal.class);
 
     private static final Consumer<JLineTextTerminal> DEFAULT_USER_INTERRUPT_HANDLER = textTerm -> System.exit(-1);
 
@@ -74,8 +96,8 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
             Color.WHITE
     };
 
-    private final ConsoleReader reader;
-    private Consumer<JLineTextTerminal>userInterruptHandler = DEFAULT_USER_INTERRUPT_HANDLER;
+    private final LineReaderImpl reader;
+    private Consumer<JLineTextTerminal> userInterruptHandler = DEFAULT_USER_INTERRUPT_HANDLER;
     private boolean abortRead = true;
 
     private AnsiColorMode ansiColorMode = AnsiColorMode.STANDARD;
@@ -113,9 +135,9 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     private static String getStandardColorCode(Color color) {
         double bestDist = Double.MAX_VALUE;
         int bestIndex = -1;
-        for(int i = 0; i < STANDARD_COLORS.length; i++) {
-            double dist =  getColorDistance(color, STANDARD_COLORS[i]);
-            if(dist < bestDist) {
+        for (int i = 0; i < STANDARD_COLORS.length; i++) {
+            double dist = getColorDistance(color, STANDARD_COLORS[i]);
+            if (dist < bestDist) {
                 bestDist = dist;
                 bestIndex = i;
             }
@@ -159,10 +181,12 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     }
 
     public Optional<String> getColorCode(String colorName) {
-        if(colorName == null || colorName.isEmpty()) return Optional.empty();
+        if (colorName == null || colorName.isEmpty()) {
+            return Optional.empty();
+        }
         try {
             int code = getStandardColorCode(colorName);
-            if(code >= 0) {
+            if (code >= 0) {
                 return Optional.of("" + code);
             }
             Color color = ColorFactory.web(colorName);
@@ -175,14 +199,18 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     }
 
     private static int mapTo6(double val) {
-        if(val < 0) val = 0;
-        if(val > 255) val = 255;
-        return (int)(val * 6.0 / 256.0);
+        if (val < 0) {
+            val = 0;
+        }
+        if (val > 255) {
+            val = 255;
+        }
+        return (int) (val * 6.0 / 256.0);
     }
 
     private String getAnsiColorWithPrefix(int prefix, String colorName) {
         String ansiCode = getColorCode(colorName).map(col -> "\u001B[1;" + prefix + col + "m").orElse("");
-        logger.debug("ansiColor({}, {}) = {}", prefix , colorName, ansiCode);
+        logger.debug("ansiColor({}, {}) = {}", prefix, colorName, ansiCode);
         return ansiCode;
     }
 
@@ -194,12 +222,13 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
         return getAnsiColorWithPrefix(4, colorName);
     }
 
-    public static ConsoleReader createReader() {
+    public static LineReaderImpl createReader() {
         try {
-            if(System.console() == null) throw new IllegalArgumentException("Console not available.");
-            return new ConsoleReader();
+            return (LineReaderImpl) LineReaderBuilder.builder()
+                    .terminal(TerminalBuilder.builder().build())
+                    .build();
         } catch (IOException e) {
-            throw new IllegalArgumentException("Cannot create a JLine ConsoleReader.", e);
+            throw new IllegalArgumentException("Cannot create a JLine Terminal.", e);
         }
     }
 
@@ -207,9 +236,10 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
         this(createReader());
     }
 
-    public JLineTextTerminal(ConsoleReader reader) {
-        if(reader == null) throw new IllegalArgumentException("reader is null");
-        reader.setHandleUserInterrupt(true);
+    public JLineTextTerminal(LineReaderImpl reader) {
+        if (reader == null) {
+            throw new IllegalArgumentException("reader is null");
+        }
         this.reader = reader;
 
         TerminalProperties<JLineTextTerminal> props = getProperties();
@@ -224,7 +254,8 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
         props.addBooleanListener(PROP_INPUT_ITALIC, false, (term, newVal) -> setInputItalic(newVal));
         props.addBooleanListener(PROP_INPUT_UNDERLINE, false, (term, newVal) -> setInputUnderline(newVal));
 
-        props.addStringListener(PROP_ANSI_COLOR_MODE, AnsiColorMode.STANDARD.toString(), (term, newVal) -> setAnsiColorMode(newVal));
+        props.addStringListener(PROP_ANSI_COLOR_MODE, AnsiColorMode.STANDARD.toString(),
+                (term, newVal) -> setAnsiColorMode(newVal));
     }
 
     @Override
@@ -233,20 +264,19 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
         try {
             String prefix = "";
             Character mask = masking ? '*' : null;
-            while(true) {
+            while (true) {
                 try {
                     String buffer = initialReadBuffer;
                     initialReadBuffer = null;
                     return prefix + reader.readLine(null, mask, buffer);
-                } catch(UserInterruptException e) {
+                } catch (UserInterruptException e) {
                     userInterruptHandler.accept(this);
                     prefix = prefix + e.getPartialLine();
-                    if(abortRead) return prefix;
+                    if (abortRead) {
+                        return prefix;
+                    }
                 } catch (ReadInterruptionException e) {
                     throw e;
-                } catch (IOException e) {
-                    logger.error("read error.", e);
-                    return "";
                 } catch (Exception e) {
                     logger.error("read error.", e);
                 }
@@ -259,7 +289,7 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     @Override
     public void rawPrint(String message) {
         String msgPrefix = "";
-        if(moveToLineStartRequired) {
+        if (moveToLineStartRequired) {
             moveToLineStartRequired = false;
             msgPrefix = "\r";
         }
@@ -269,10 +299,7 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     public void printAnsi(String message) {
         try {
             reader.setPrompt(message);
-            reader.drawLine();
-            reader.flush();
-        } catch (IOException e) {
-            logger.error("print error.", e);
+            println();
         } finally {
             reader.setPrompt(null);
         }
@@ -288,23 +315,13 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
 
     @Override
     public void println() {
-        try {
-            reader.println();
-            reader.flush();
-        } catch (IOException e) {
-            logger.error("println error.", e);
-        }
+        reader.getTerminal().writer().println();
+        reader.flush();
     }
 
     @Override
     public boolean resetLine() {
-        try {
-            reader.resetPromptLine("", "", 0);
-            return true;
-        } catch (IOException e) {
-            logger.error("resetLine error.", e);
-            return false;
-        }
+        return reader.redrawLine();
     }
 
     @Override
@@ -320,7 +337,7 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
         return true;
     }
 
-    private static class UserHandler implements ActionListener {
+    private static class UserHandler implements ActionListener, Binding {
         private final JLineTextTerminal textTerminal;
         private final Function<JLineTextTerminal, ReadHandlerData> handler;
 
@@ -331,16 +348,16 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            CursorBuffer buf = textTerminal.reader.getCursorBuffer();
-            String partialInput = buf.buffer.toString();
+            Buffer buf = textTerminal.reader.getBuffer();
+            String partialInput = buf.substring(0);
             buf.clear();
 
             ReadHandlerData handlerData = handler.apply(textTerminal);
             ReadInterruptionStrategy.Action action = handlerData.getAction();
-            if(action == CONTINUE) {
+            if (action == CONTINUE) {
                 buf.write(partialInput);
             } else {
-                if(action == RESTART) {
+                if (action == RESTART) {
                     textTerminal.initialReadBuffer = partialInput;
                 }
                 ReadInterruptionData interruptData = ReadInterruptionData.from(handlerData, partialInput);
@@ -352,24 +369,32 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     @Override
     public boolean registerHandler(String keyStroke, Function<JLineTextTerminal, ReadHandlerData> handler) {
         String keySeq = getKeySequence(keyStroke);
-        if(keySeq == null) return false;
-        reader.getKeys().bind(keySeq, new UserHandler(this, handler));
+        if (keySeq == null) {
+            return false;
+        }
+        reader.getKeys().bind(new UserHandler(this, handler), keySeq);
         return true;
     }
 
     @Override
     public void dispose(String resultData) {
         printAnsi(ANSI_RESET);
-        reader.close();
+        try {
+            reader.getTerminal().close();
+        } catch (IOException e) {
+        }
     }
 
     @Override
     public void abort() {
         printAnsi(ANSI_RESET);
-        reader.close();
+        try {
+            reader.getTerminal().close();
+        } catch (IOException e) {
+        }
     }
 
-    public ConsoleReader getReader() {
+    public LineReaderImpl getReader() {
         return reader;
     }
 
@@ -414,7 +439,7 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
     }
 
     public void setAnsiColorMode(String mode) {
-        if(mode == null || mode.isEmpty()) {
+        if (mode == null || mode.isEmpty()) {
             ansiColorMode = AnsiColorMode.STANDARD;
             return;
         }
@@ -428,18 +453,26 @@ public class JLineTextTerminal extends AbstractTextTerminal<JLineTextTerminal> {
 
     public static String getKeySequence(String keyStroke) {
         KeyCombination kc = KeyCombination.of(keyStroke);
-        if(kc == null) return null;
-        if(kc.isTyped()) return String.valueOf(kc.getChar());
+        if (kc == null) {
+            return null;
+        }
+        if (kc.isTyped()) {
+            return String.valueOf(kc.getChar());
+        }
         int code = kc.getCode();
-        if(code < 'A' || code > 'Z') return null;
-        if(kc.isCtrlDown()) {
-            if(kc.isAltDown()) return null;
-            return String.valueOf((char)(code + 1 -'A'));
-        } else if(kc.isAltDown()) {
-            if(!kc.isShiftDown()) {
+        if (code < 'A' || code > 'Z') {
+            return null;
+        }
+        if (kc.isCtrlDown()) {
+            if (kc.isAltDown()) {
+                return null;
+            }
+            return String.valueOf((char) (code + 1 - 'A'));
+        } else if (kc.isAltDown()) {
+            if (!kc.isShiftDown()) {
                 code += 32;
             }
-            return String.format("%c%c", (char)27, (char)code);
+            return String.format("%c%c", (char) 27, (char) code);
         }
         return null;
     }

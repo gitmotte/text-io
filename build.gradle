@@ -299,7 +299,7 @@ gitPublish {
 
 project('text-io') {
     dependencies {
-      compile 'jline:jline:2.14.5'
+      compile 'org.jline:jline:3.13.1'
       compile 'org.beryx:awt-color-factory:1.0.0'
     }
     jar {
